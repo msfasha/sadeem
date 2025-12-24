@@ -1,0 +1,166 @@
+{{- if .Values.trino.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trino-config
+  labels:
+    app: trino
+data:
+  config.properties: |
+    coordinator=true
+    node-scheduler.include-coordinator=false
+    http-server.http.port=8080
+    discovery.uri=http://trino-coordinator:8080
+    query.max-memory=4GB
+    query.max-memory-per-node=2GB
+    query.max-total-memory=8GB
+    memory.heap-headroom-per-node=1GB
+  node.properties: |
+    node.environment=production
+    node.data-dir=/data/trino
+  jvm.config: |
+    -server
+    -Xmx4G
+    -XX:+UseG1GC
+    -XX:G1HeapRegionSize=32M
+    -XX:+UseGCOverheadLimit
+    -XX:+ExplicitGCInvokesConcurrent
+    -XX:+HeapDumpOnOutOfMemoryError
+    -XX:+ExitOnOutOfMemoryError
+  catalog.properties: |
+    connector.name=iceberg
+    iceberg.catalog.type={{ .Values.trino.iceberg.catalogType }}
+    iceberg.catalog.uri={{ .Values.trino.iceberg.restUri }}
+    iceberg.warehouse=s3://warehouse/
+    s3.endpoint={{ .Values.trino.s3.endpoint }}
+    s3.access-key={{ .Values.trino.s3.accessKey }}
+    s3.secret-key={{ .Values.trino.s3.secretKey }}
+    s3.path-style-access={{ .Values.trino.s3.pathStyleAccess }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.serviceAccounts.trino.name }}
+  labels:
+    app: trino
+{{- if .Values.serviceAccounts.create }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino-coordinator
+  labels:
+    app: trino
+    component: coordinator
+spec:
+  replicas: {{ .Values.trino.coordinator.replicas }}
+  selector:
+    matchLabels:
+      app: trino
+      component: coordinator
+  template:
+    metadata:
+      labels:
+        app: trino
+        component: coordinator
+    spec:
+      serviceAccountName: {{ .Values.serviceAccounts.trino.name }}
+      containers:
+      - name: trino
+        image: {{ .Values.trino.image.repository }}:{{ .Values.trino.image.tag }}
+        ports:
+        - containerPort: {{ .Values.trino.service.port }}
+          name: http
+        volumeMounts:
+        - name: config
+          mountPath: /etc/trino
+        - name: data
+          mountPath: /data/trino
+        resources:
+          {{- toYaml .Values.trino.coordinator.resources | nindent 10 }}
+      volumes:
+      - name: config
+        configMap:
+          name: trino-config
+      - name: data
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trino-worker
+  labels:
+    app: trino
+    component: worker
+spec:
+  replicas: {{ .Values.trino.worker.replicas }}
+  selector:
+    matchLabels:
+      app: trino
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: trino
+        component: worker
+    spec:
+      serviceAccountName: {{ .Values.serviceAccounts.trino.name }}
+      containers:
+      - name: trino
+        image: {{ .Values.trino.image.repository }}:{{ .Values.trino.image.tag }}
+        ports:
+        - containerPort: {{ .Values.trino.service.port }}
+          name: http
+        env:
+        - name: COORDINATOR
+          value: "false"
+        volumeMounts:
+        - name: config
+          mountPath: /etc/trino
+        - name: data
+          mountPath: /data/trino
+        resources:
+          {{- toYaml .Values.trino.worker.resources | nindent 10 }}
+      volumes:
+      - name: config
+        configMap:
+          name: trino-config
+      - name: data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino-coordinator
+  labels:
+    app: trino
+    component: coordinator
+spec:
+  type: {{ .Values.trino.service.type }}
+  ports:
+  - port: {{ .Values.trino.service.port }}
+    targetPort: {{ .Values.trino.service.port }}
+    protocol: TCP
+    name: http
+  selector:
+    app: trino
+    component: coordinator
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trino
+  labels:
+    app: trino
+spec:
+  type: {{ .Values.trino.service.type }}
+  ports:
+  - port: {{ .Values.trino.service.port }}
+    targetPort: {{ .Values.trino.service.port }}
+    protocol: TCP
+    name: http
+  selector:
+    app: trino
+{{- end }}
+

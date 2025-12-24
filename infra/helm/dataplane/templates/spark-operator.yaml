@@ -1,0 +1,81 @@
+{{- if .Values.sparkOperator.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.sparkOperator.serviceAccount.name }}
+  labels:
+    app: spark-operator
+{{- if .Values.sparkOperator.serviceAccount.create }}
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: spark-operator-role
+  labels:
+    app: spark-operator
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: spark-operator-rolebinding
+  labels:
+    app: spark-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: spark-operator-role
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.sparkOperator.serviceAccount.name }}
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spark-operator
+  labels:
+    app: spark-operator
+spec:
+  replicas: {{ .Values.sparkOperator.replicas }}
+  selector:
+    matchLabels:
+      app: spark-operator
+  template:
+    metadata:
+      labels:
+        app: spark-operator
+    spec:
+      serviceAccountName: {{ .Values.sparkOperator.serviceAccount.name }}
+      containers:
+      - name: spark-operator
+        image: {{ .Values.sparkOperator.image.repository }}:{{ .Values.sparkOperator.image.tag }}
+        args:
+        - -v=2
+        - -namespace=default
+        - -enable-webhook=false
+        env:
+        - name: OPERATOR_NAME
+          value: "spark-operator"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+{{- end }}
+
