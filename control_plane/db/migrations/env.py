@@ -5,16 +5,18 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# Import your models' Base and all models
+# Import models so Alembic can detect them
+import sys
+from pathlib import Path
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from db.models import Base
-from db.database import settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-
-# Override sqlalchemy.url with settings
-config.set_main_option("sqlalchemy.url", settings.database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -81,4 +83,7 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
+
+
+
 

@@ -1,85 +1,69 @@
-# Lakehouse Platform
+# Big Data Platform
 
-A simple, portable, Kubernetes-first lakehouse platform with a control plane for managing workspaces, connections, jobs, and runs.
-
-## Overview
-
-This platform provides:
-- **Data plane**: MinIO (object storage), Apache Iceberg (table format), Trino (SQL engine), Spark (batch compute)
-- **Control plane**: FastAPI-based API for managing workspaces, connections, jobs, and runs
-
-See [docs/overview.md](docs/overview.md) for the complete specification.
+A simple, on-prem/hybrid "junior Databricks" platform for managing workspaces, connections, catalogs, jobs, and runs.
 
 ## Quick Start
 
 ### Prerequisites
+- Docker and Docker Compose
+- Kubernetes cluster (k3d, kind, or minikube)
+- kubectl configured
+- Helm 3.x
+- Python 3.10+
 
-- Kubernetes cluster (local: `kind`, `minikube`, or `k3d`)
-- `kubectl` configured
-- `helm` v3.x installed
-- Python 3.10+ (for control plane)
-- PostgreSQL (for control plane metadata)
+### Local Development
 
-### Deploy Data Plane
+1. **Start local Kubernetes cluster** (example with k3d):
+   ```bash
+   k3d cluster create sadeem-platform
+   ```
 
-```bash
-# Deploy data plane components
-cd infra/helm
-helm install dataplane ./dataplane
+2. **Deploy data plane**:
+   ```bash
+   make dev-k8s-up
+   # Or manually:
+   cd infra/helm
+   helm install dataplane ./dataplane
+   ```
 
-# Wait for components to be ready
-kubectl wait --for=condition=available --timeout=300s deployment/minio
-kubectl wait --for=condition=available --timeout=300s deployment/trino-coordinator
-```
+3. **Start control plane**:
+   ```bash
+   make dev-cp-up
+   # Or manually:
+   docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=dev postgres:15
+   cd control_plane
+   alembic upgrade head
+   uvicorn api.main:app --reload
+   ```
 
-### Setup Control Plane
-
-```bash
-# Install dependencies
-cd control_plane
-pip install -r requirements.txt
-
-# Set database URL
-export DB_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/lakehouse_platform"
-
-# Run migrations
-alembic upgrade head
-
-# Start API server
-uvicorn api.main:app --reload
-```
-
-### Run Demo
-
-```bash
-# Run smoke demo (end-to-end test)
-cd infra/examples
-./smoke-demo.sh
-
-# Or run Spark -> Iceberg -> Trino demo
-./demo-spark-to-trino.sh
-```
+4. **Run demo**:
+   ```bash
+   make demo
+   # Or manually:
+   cd infra/examples
+   ./demo-spark-to-trino.sh
+   ```
 
 ## Project Structure
 
 ```
-.
-├── control_plane/          # FastAPI control plane
-│   ├── api/               # API endpoints
-│   ├── db/                # Database models and migrations
-│   └── worker/            # Job execution workers
-├── infra/
-│   ├── helm/             # Helm charts for data plane
-│   └── examples/         # Demo scripts
-└── docs/                  # Documentation
-    └── overview.md       # Single source of truth
+control_plane/          # Control plane services
+  api/                  # FastAPI application
+  worker/               # Async execution workers
+  db/                   # Database models and migrations
+infra/
+  helm/                 # Helm charts for data plane
+  k8s/                  # Plain Kubernetes manifests
+  examples/             # Demo scripts and configs
+docs/
+  overview.md           # Single Source of Truth (SSOT)
 ```
 
-## Development
+## Documentation
 
-See individual component READMEs:
-- [Control Plane README](control_plane/README.md)
-- [Helm Chart README](infra/helm/dataplane/README.md)
+See [docs/overview.md](docs/overview.md) for the complete architecture, design decisions, and operational notes.
+
+**Important**: This project follows a strict documentation contract. All code changes must update `docs/overview.md` in the same change set.
 
 ## License
 

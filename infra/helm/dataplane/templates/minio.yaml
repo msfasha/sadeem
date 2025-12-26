@@ -2,74 +2,96 @@
 apiVersion: v1
 kind: Secret
 metadata:
-  name: minio-credentials
+  name: {{ include "dataplane.fullname" . }}-minio-secret
   labels:
-    app: minio
+    {{- include "dataplane.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   access-key: {{ .Values.minio.accessKey }}
   secret-key: {{ .Values.minio.secretKey }}
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
+kind: Service
 metadata:
-  name: minio-pvc
+  name: {{ include "dataplane.fullname" . }}-minio
   labels:
+    {{- include "dataplane.labels" . | nindent 4 }}
     app: minio
 spec:
-  accessModes:
-    - ReadWriteOnce
-  {{- if .Values.global.storageClass }}
-  storageClassName: {{ .Values.global.storageClass }}
-  {{- else if .Values.minio.persistence.storageClass }}
-  storageClassName: {{ .Values.minio.persistence.storageClass }}
+  type: {{ .Values.minio.service.type }}
+  {{- if eq .Values.minio.service.type "NodePort" }}
+  ports:
+    - port: {{ .Values.minio.service.port }}
+      targetPort: 9000
+      protocol: TCP
+      name: api
+      {{- if .Values.minio.service.nodePort }}
+      nodePort: {{ .Values.minio.service.nodePort }}
+      {{- end }}
+    - port: {{ .Values.minio.console.port }}
+      targetPort: 9001
+      protocol: TCP
+      name: console
+  {{- else }}
+  ports:
+    - port: {{ .Values.minio.service.port }}
+      targetPort: 9000
+      protocol: TCP
+      name: api
+    - port: {{ .Values.minio.console.port }}
+      targetPort: 9001
+      protocol: TCP
+      name: console
   {{- end }}
-  resources:
-    requests:
-      storage: {{ .Values.minio.persistence.size }}
+  selector:
+    {{- include "dataplane.selectorLabels" . | nindent 4 }}
+    app: minio
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: minio
+  name: {{ include "dataplane.fullname" . }}-minio
   labels:
+    {{- include "dataplane.labels" . | nindent 4 }}
     app: minio
 spec:
-  replicas: {{ .Values.minio.replicas }}
+  replicas: 1
   selector:
     matchLabels:
+      {{- include "dataplane.selectorLabels" . | nindent 6 }}
       app: minio
   template:
     metadata:
       labels:
+        {{- include "dataplane.selectorLabels" . | nindent 8 }}
         app: minio
     spec:
       containers:
       - name: minio
         image: {{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}
         args:
-        - server
-        - /data
-        - --console-address
-        - ":9001"
+          - server
+          - /data
+          - --console-address
+          - ":9001"
         env:
         - name: MINIO_ROOT_USER
           valueFrom:
             secretKeyRef:
-              name: minio-credentials
+              name: {{ include "dataplane.fullname" . }}-minio-secret
               key: access-key
         - name: MINIO_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: minio-credentials
+              name: {{ include "dataplane.fullname" . }}-minio-secret
               key: secret-key
         ports:
-        - containerPort: {{ .Values.minio.service.port }}
+        - containerPort: 9000
           name: api
-        - containerPort: {{ .Values.minio.service.consolePort }}
+        - containerPort: 9001
           name: console
         volumeMounts:
-        - name: storage
+        - name: data
           mountPath: /data
         resources:
           requests:
@@ -79,62 +101,34 @@ spec:
             memory: "1Gi"
             cpu: "500m"
       volumes:
-      - name: storage
-        persistentVolumeClaim:
-          claimName: minio-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: minio
-  labels:
-    app: minio
-spec:
-  type: {{ .Values.minio.service.type }}
-  ports:
-  - port: {{ .Values.minio.service.port }}
-    targetPort: {{ .Values.minio.service.port }}
-    protocol: TCP
-    name: api
-  - port: {{ .Values.minio.service.consolePort }}
-    targetPort: {{ .Values.minio.service.consolePort }}
-    protocol: TCP
-    name: console
-  selector:
-    app: minio
----
-{{- range .Values.minio.buckets }}
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: minio-create-bucket-{{ .name }}
-  labels:
-    app: minio
-    component: bucket-init
-spec:
-  template:
-    spec:
-      restartPolicy: OnFailure
-      containers:
-      - name: mc
+      - name: data
+        emptyDir: {}
+      {{- if .Values.minio.buckets }}
+      initContainers:
+      - name: create-buckets
         image: minio/mc:latest
         command:
-        - /bin/sh
-        - -c
-        - |
-          mc alias set minio http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
-          mc mb minio/{{ .name }} || true
+          - /bin/sh
+          - -c
+          - |
+            mc alias set myminio http://{{ include "dataplane.fullname" . }}-minio:{{ .Values.minio.service.port }} $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+            {{- range .Values.minio.buckets }}
+            mc mb myminio/{{ .name }} || true
+            {{- end }}
         env:
         - name: MINIO_ROOT_USER
           valueFrom:
             secretKeyRef:
-              name: minio-credentials
+              name: {{ include "dataplane.fullname" . }}-minio-secret
               key: access-key
         - name: MINIO_ROOT_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: minio-credentials
+              name: {{ include "dataplane.fullname" . }}-minio-secret
               key: secret-key
+      {{- end }}
 {{- end }}
-{{- end }}
+
+
+
 

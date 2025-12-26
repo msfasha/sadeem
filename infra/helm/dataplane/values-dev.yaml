@@ -1,0 +1,43 @@
+# Development values - override defaults for local k8s
+
+minio:
+  accessKey: minioadmin
+  secretKey: minioadmin
+  service:
+    type: NodePort
+    nodePort: 30090
+
+icebergCatalog:
+  service:
+    type: NodePort
+    nodePort: 30181
+
+trino:
+  coordinator:
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1"
+  worker:
+    replicas: 1
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1"
+  service:
+    type: NodePort
+    nodePort: 30080
+
+postgres:
+  persistence:
+    enabled: false
+
+
+
+

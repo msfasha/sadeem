@@ -1,130 +1,89 @@
 # Default values for dataplane chart
-# This is a YAML-formatted file.
-
-# Global settings
-global:
-  namespace: default
-  storageClass: ""
 
 # MinIO configuration
 minio:
   enabled: true
   image:
     repository: minio/minio
-    tag: "RELEASE.2024-01-16T16-07-38Z"
-  accessKey: "minioadmin"
-  secretKey: "minioadmin"
-  replicas: 1
-  persistence:
-    enabled: true
-    size: 100Gi
-    storageClass: ""
+    tag: RELEASE.2024-01-16T16-07-38Z
+  accessKey: minioadmin
+  secretKey: minioadmin
   buckets:
-    - name: "bronze"
-    - name: "silver"
-    - name: "gold"
-    - name: "warehouse"
-    - name: "mlflow"
+    - name: sadeem-data
+      policy: none
   service:
     type: ClusterIP
     port: 9000
-    consolePort: 9001
+  console:
+    port: 9001
 
-# Postgres for Iceberg REST catalog metadata
-postgres:
-  enabled: true
-  image:
-    repository: postgres
-    tag: "15-alpine"
-  database: "iceberg_catalog"
-  username: "iceberg"
-  password: "iceberg_password"
-  persistence:
-    enabled: true
-    size: 20Gi
-    storageClass: ""
-  service:
-    type: ClusterIP
-    port: 5432
-
-# Iceberg REST catalog
+# Iceberg REST Catalog configuration
 icebergCatalog:
   enabled: true
   image:
     repository: tabulario/iceberg-rest
-    tag: "latest"
-  replicas: 1
-  postgres:
-    host: "postgres"
-    port: 5432
-    database: "iceberg_catalog"
-    username: "iceberg"
-    password: "iceberg_password"
-  s3:
-    endpoint: "http://minio:9000"
-    accessKeyId: "minioadmin"
-    secretAccessKey: "minioadmin"
-    bucket: "warehouse"
-    pathStyleAccess: true
+    tag: 1.4.1
   service:
     type: ClusterIP
     port: 8181
+  # Catalog backend: postgres or file-based
+  backend: postgres
+  postgres:
+    host: iceberg-catalog-postgres
+    port: 5432
+    database: iceberg_catalog
+    user: iceberg
+    password: iceberg_password
 
 # Trino configuration
 trino:
   enabled: true
   image:
     repository: trinodb/trino
-    tag: "451"
+    tag: 451
   coordinator:
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1"
+      limits:
+        memory: "4Gi"
+        cpu: "2"
+  worker:
     replicas: 1
     resources:
       requests:
         memory: "2Gi"
-        cpu: "1000m"
+        cpu: "1"
       limits:
         memory: "4Gi"
-        cpu: "2000m"
-  worker:
-    replicas: 2
-    resources:
-      requests:
-        memory: "4Gi"
-        cpu: "2000m"
-      limits:
-        memory: "8Gi"
-        cpu: "4000m"
-  iceberg:
-    catalogName: "iceberg"
-    catalogType: "rest"
-    restUri: "http://iceberg-catalog:8181"
-  s3:
-    endpoint: "http://minio:9000"
-    accessKey: "minioadmin"
-    secretKey: "minioadmin"
-    pathStyleAccess: true
+        cpu: "2"
   service:
     type: ClusterIP
     port: 8080
 
-# Spark operator for Spark jobs
+# Spark Operator configuration
 sparkOperator:
   enabled: true
   image:
     repository: gcr.io/spark-operator/spark-operator
-    tag: "v1beta2-1.3.8-3.1.1"
-  replicas: 1
-  serviceAccount:
-    create: true
-    name: "spark-operator"
+    tag: v1beta2-1.3.8-3.1.1
+  webhook:
+    enabled: true
 
-# Service accounts and RBAC
-serviceAccounts:
-  create: true
-  spark:
-    create: true
-    name: "spark"
-  trino:
-    create: true
-    name: "trino"
+# Postgres for Iceberg catalog (if backend is postgres)
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "15"
+  database: iceberg_catalog
+  user: iceberg
+  password: iceberg_password
+  persistence:
+    enabled: false  # Disable for dev
+    size: 10Gi
+
+
+
 

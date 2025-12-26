@@ -1,7 +1,10 @@
 apiVersion: v2
 name: dataplane
-description: Data plane components for lakehouse platform (MinIO, Iceberg REST catalog, Trino, Spark)
+description: Big Data Platform Data Plane - MinIO, Iceberg REST Catalog, Trino, Spark Operator
 type: application
 version: 0.1.0
-appVersion: "1.0"
+appVersion: "0.1.0"
+
+
+
 

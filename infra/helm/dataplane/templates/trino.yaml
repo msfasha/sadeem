@@ -2,165 +2,157 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: trino-config
+  name: {{ include "dataplane.fullname" . }}-trino-config
   labels:
-    app: trino
+    {{- include "dataplane.labels" . | nindent 4 }}
 data:
   config.properties: |
     coordinator=true
-    node-scheduler.include-coordinator=false
+    node-scheduler.include-coordinator=true
     http-server.http.port=8080
-    discovery.uri=http://trino-coordinator:8080
+    discovery.uri=http://localhost:8080
     query.max-memory=4GB
     query.max-memory-per-node=2GB
-    query.max-total-memory=8GB
-    memory.heap-headroom-per-node=1GB
-  node.properties: |
-    node.environment=production
-    node.data-dir=/data/trino
+    memory.heap-headroom-per-node=512MB
   jvm.config: |
     -server
-    -Xmx4G
+    -Xmx2G
     -XX:+UseG1GC
     -XX:G1HeapRegionSize=32M
     -XX:+UseGCOverheadLimit
     -XX:+ExplicitGCInvokesConcurrent
     -XX:+HeapDumpOnOutOfMemoryError
     -XX:+ExitOnOutOfMemoryError
+  log.properties: |
+    io.trino=INFO
   catalog.properties: |
     connector.name=iceberg
-    iceberg.catalog.type={{ .Values.trino.iceberg.catalogType }}
-    iceberg.catalog.uri={{ .Values.trino.iceberg.restUri }}
-    iceberg.warehouse=s3://warehouse/
-    s3.endpoint={{ .Values.trino.s3.endpoint }}
-    s3.access-key={{ .Values.trino.s3.accessKey }}
-    s3.secret-key={{ .Values.trino.s3.secretKey }}
-    s3.path-style-access={{ .Values.trino.s3.pathStyleAccess }}
+    catalog.warehouse=s3://sadeem-data/warehouse
+    catalog.uri=http://{{ include "dataplane.fullname" . }}-iceberg-catalog:{{ .Values.icebergCatalog.service.port }}
+    io.uri=http://{{ include "dataplane.fullname" . }}-iceberg-catalog:{{ .Values.icebergCatalog.service.port }}
+    s3.endpoint=http://{{ include "dataplane.fullname" . }}-minio:{{ .Values.minio.service.port }}
+    s3.access-key={{ .Values.minio.accessKey }}
+    s3.secret-key={{ .Values.minio.secretKey }}
+    s3.path-style-access=true
 ---
 apiVersion: v1
-kind: ServiceAccount
+kind: Service
 metadata:
-  name: {{ .Values.serviceAccounts.trino.name }}
+  name: {{ include "dataplane.fullname" . }}-trino
   labels:
+    {{- include "dataplane.labels" . | nindent 4 }}
     app: trino
-{{- if .Values.serviceAccounts.create }}
-{{- end }}
+spec:
+  type: {{ .Values.trino.service.type }}
+  {{- if eq .Values.trino.service.type "NodePort" }}
+  ports:
+    - port: {{ .Values.trino.service.port }}
+      targetPort: 8080
+      protocol: TCP
+      name: http
+      {{- if .Values.trino.service.nodePort }}
+      nodePort: {{ .Values.trino.service.nodePort }}
+      {{- end }}
+  {{- else }}
+  ports:
+    - port: {{ .Values.trino.service.port }}
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  {{- end }}
+  selector:
+    {{- include "dataplane.selectorLabels" . | nindent 4 }}
+    app: trino
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
-  name: trino-coordinator
+  name: {{ include "dataplane.fullname" . }}-trino-coordinator
   labels:
+    {{- include "dataplane.labels" . | nindent 4 }}
     app: trino
     component: coordinator
 spec:
-  replicas: {{ .Values.trino.coordinator.replicas }}
+  serviceName: {{ include "dataplane.fullname" . }}-trino
+  replicas: 1
   selector:
     matchLabels:
+      {{- include "dataplane.selectorLabels" . | nindent 6 }}
       app: trino
       component: coordinator
   template:
     metadata:
       labels:
+        {{- include "dataplane.selectorLabels" . | nindent 8 }}
         app: trino
         component: coordinator
     spec:
-      serviceAccountName: {{ .Values.serviceAccounts.trino.name }}
       containers:
       - name: trino
         image: {{ .Values.trino.image.repository }}:{{ .Values.trino.image.tag }}
         ports:
-        - containerPort: {{ .Values.trino.service.port }}
+        - containerPort: 8080
           name: http
         volumeMounts:
         - name: config
           mountPath: /etc/trino
-        - name: data
-          mountPath: /data/trino
+        - name: catalog
+          mountPath: /etc/trino/catalog
         resources:
           {{- toYaml .Values.trino.coordinator.resources | nindent 10 }}
-      volumes:
-      - name: config
-        configMap:
-          name: trino-config
-      - name: data
-        emptyDir: {}
+  volumeClaimTemplates: []
+  volumes:
+  - name: config
+    configMap:
+      name: {{ include "dataplane.fullname" . }}-trino-config
+  - name: catalog
+    configMap:
+      name: {{ include "dataplane.fullname" . }}-trino-config
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: trino-worker
+  name: {{ include "dataplane.fullname" . }}-trino-worker
   labels:
+    {{- include "dataplane.labels" . | nindent 4 }}
     app: trino
     component: worker
 spec:
   replicas: {{ .Values.trino.worker.replicas }}
   selector:
     matchLabels:
+      {{- include "dataplane.selectorLabels" . | nindent 6 }}
       app: trino
       component: worker
   template:
     metadata:
       labels:
+        {{- include "dataplane.selectorLabels" . | nindent 8 }}
         app: trino
         component: worker
     spec:
-      serviceAccountName: {{ .Values.serviceAccounts.trino.name }}
       containers:
       - name: trino
         image: {{ .Values.trino.image.repository }}:{{ .Values.trino.image.tag }}
         ports:
-        - containerPort: {{ .Values.trino.service.port }}
+        - containerPort: 8080
           name: http
-        env:
-        - name: COORDINATOR
-          value: "false"
         volumeMounts:
         - name: config
           mountPath: /etc/trino
-        - name: data
-          mountPath: /data/trino
+        - name: catalog
+          mountPath: /etc/trino/catalog
         resources:
           {{- toYaml .Values.trino.worker.resources | nindent 10 }}
       volumes:
       - name: config
         configMap:
-          name: trino-config
-      - name: data
-        emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: trino-coordinator
-  labels:
-    app: trino
-    component: coordinator
-spec:
-  type: {{ .Values.trino.service.type }}
-  ports:
-  - port: {{ .Values.trino.service.port }}
-    targetPort: {{ .Values.trino.service.port }}
-    protocol: TCP
-    name: http
-  selector:
-    app: trino
-    component: coordinator
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: trino
-  labels:
-    app: trino
-spec:
-  type: {{ .Values.trino.service.type }}
-  ports:
-  - port: {{ .Values.trino.service.port }}
-    targetPort: {{ .Values.trino.service.port }}
-    protocol: TCP
-    name: http
-  selector:
-    app: trino
+          name: {{ include "dataplane.fullname" . }}-trino-config
+      - name: catalog
+        configMap:
+          name: {{ include "dataplane.fullname" . }}-trino-config
 {{- end }}
+
+
+
 
